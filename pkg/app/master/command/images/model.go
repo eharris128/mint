@@ -1,6 +1,7 @@
 package images
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -25,6 +26,9 @@ type TUI struct {
 	height     int
 	standalone bool
 	loading    bool
+	// runtime selection controls
+	choice int
+	chosen bool
 }
 
 // Styles - move to `common`
@@ -45,6 +49,8 @@ var (
 	EvenRowStyle = CellStyle.Foreground(lightGray)
 	// BorderStyle is the lipgloss style used for the table border.
 	BorderStyle = lipgloss.NewStyle().Foreground(white)
+	// CheckboxStyle is the lipgloss style used for the runtime selector
+	CheckboxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 )
 
 // End styles
@@ -152,16 +158,94 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return common.TUIsInstance.Home, nil
 		}
 	}
+	// If the user has not made a choice, handle choice updates
+	if !m.chosen {
+		return updateChoices(msg, m)
+	}
+	// Otherwise...
+	// TODO - loading state after a user has selected a choice
 	return m, nil
+}
+
+func updateChoices(msg tea.Msg, m TUI) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "j", "down":
+			m.choice++
+			if m.choice > 3 {
+				m.choice = 3
+			}
+		case "k", "up":
+			m.choice--
+			if m.choice < 0 {
+				m.choice = 0
+			}
+		case "enter":
+			m.chosen = true
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func choicesView(m TUI) string {
+	choice := m.choice
+
+	template := "Filter by runtime\n\n"
+	template += "%s\n\n"
+	choices := fmt.Sprintf(
+		"%s\n%s\n%s",
+		checkbox("Docker", choice == 0),
+		checkbox("Containerd", choice == 1),
+		checkbox("Podman", choice == 2),
+	)
+	return fmt.Sprintf(template, choices)
+}
+
+func checkbox(label string, checked bool) string {
+	if checked {
+		return CheckboxStyle.Render("[x] " + label)
+	}
+	return fmt.Sprintf("[ ] %s", label)
+}
+
+const (
+	dockerRuntime     = "docker"
+	containerdRuntime = "containerd"
+	podmanRuntime     = "podman"
+)
+
+func chosenView(m TUI) string {
+	var runtime string
+
+	switch m.choice {
+	case 0:
+		runtime = dockerRuntime
+	case 1:
+		runtime = containerdRuntime
+	case 2:
+		runtime = podmanRuntime
+	}
+
+	return fmt.Sprintf("You picked - %s:)", runtime)
 }
 
 // View returns the view that should be displayed.
 func (m TUI) View() string {
 	var components []string
 
-	content := m.table.String()
+	tableContent := m.table.String()
 
-	components = append(components, content)
+	var runtimeSelectorContent string
+	if !m.chosen {
+		runtimeSelectorContent = choicesView(m)
+	} else {
+		runtimeSelectorContent = chosenView(m)
+	}
+
+	components = append(components, tableContent, runtimeSelectorContent)
 
 	components = append(components, m.help())
 
@@ -172,7 +256,7 @@ func (m TUI) View() string {
 
 func (m TUI) help() string {
 	if m.standalone {
-		return common.HelpStyle("• q: quit")
+		return common.HelpStyle("• j/k, up/down: select • enter: choose • q: quit")
 	}
-	return common.HelpStyle("• esc: back • q: quit")
+	return common.HelpStyle("• j/k, up/down: select • enter: choose • esc: back • q: quit")
 }
